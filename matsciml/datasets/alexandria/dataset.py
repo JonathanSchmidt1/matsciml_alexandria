@@ -244,7 +244,8 @@ class M3GAlexandriaDataset(AlexandriaDataset):
         self.threebody_cutoff = threebody_cutoff
         self.graph_labels = graph_labels
         self.cutoff_dist = cutoff_dist
-
+        self.clear_processed = True
+        
     def _parse_structure(
         self,
         data: dict[str, Any],
