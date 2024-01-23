@@ -251,7 +251,7 @@ class MatSciMLDataModule(pl.LightningDataModule):
             splits["train"] = self.dataset
         self.splits = splits
 
-     def train_dataloader(self, num_workers=None):
+    def train_dataloader(self, num_workers=None):
         split = self.splits.get("train")
         if num_workers == None:
             num_workers = self.hparams.num_workers
