@@ -251,52 +251,73 @@ class MatSciMLDataModule(pl.LightningDataModule):
             splits["train"] = self.dataset
         self.splits = splits
 
-    def train_dataloader(self):
+     def train_dataloader(self, num_workers=None):
         split = self.splits.get("train")
+        if num_workers == None:
+            num_workers = self.hparams.num_workers
+            persistent = self.persistent_workers
+        else:
+            persistent = False
         return DataLoader(
             split,
             batch_size=self.hparams.batch_size,
             shuffle=True,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
-            persistent_workers=self.persistent_workers,
+            persistent_workers=persistent,
         )
 
-    def predict_dataloader(self):
+    def predict_dataloader(self, num_workers=None):
         """
         Predict behavior just assumes the whole dataset is used for inference.
         """
+        if num_workers == None:
+    	    num_workers = self.hparams.num_workers
+    	    persistent = self.persistent_workers
+        else:
+            persistent = False
         return DataLoader(
             self.dataset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self, num_workers=None):
         split = self.splits.get("test", None)
         if split is None:
             return None
+        if num_workers == None:
+        	num_workers = self.hparams.num_workers
+        	persistent = self.persistent_workers
+        else:
+            persistent=False
         return DataLoader(
             split,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self, num_workers=None):
         split = self.splits.get("val", None)
         if split is None:
             return None
+        if num_workers == None:
+            persistent = self.persistent_workers
+            num_workers = self.hparams.num_workers
+        else:
+            persistent = False
         return DataLoader(
             split,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
         )
+
 
     @classmethod
     def from_devset(
