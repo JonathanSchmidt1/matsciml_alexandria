@@ -1112,7 +1112,20 @@ class ScalarRegressionTask(BaseTaskModule):
         for key in self.task_keys:
             modules[key] = OutputHead(1, **self.output_kwargs).to(self.device)
         return nn.ModuleDict(modules)
-
+        
+    def setup(self, stage):
+        match stage:
+            case 'fit':
+                dataloader = self.trainer.datamodule.train_dataloader()
+            case 'validate':
+                dataloader = self.trainer.datamodule.val_dataloader()
+            case 'test':
+                dataloader = self.trainer.datamodule.test_dataloader()
+            case 'predict':
+                dataloader = self.trainer.datamodule.predict_dataloader()
+        dummy_batch = next(iter(dataloader))
+        self.forward(dummy_batch)
+    
     def _filter_task_keys(
         self,
         keys: list[str],
