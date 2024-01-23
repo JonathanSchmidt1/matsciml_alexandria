@@ -1116,13 +1116,13 @@ class ScalarRegressionTask(BaseTaskModule):
     def setup(self, stage):
         match stage:
             case 'fit':
-                dataloader = self.trainer.datamodule.train_dataloader()
+                dataloader = self.trainer.datamodule.train_dataloader(num_workers=0)
             case 'validate':
-                dataloader = self.trainer.datamodule.val_dataloader()
+                dataloader = self.trainer.datamodule.val_dataloader(num_workers=0)
             case 'test':
-                dataloader = self.trainer.datamodule.test_dataloader()
+                dataloader = self.trainer.datamodule.test_dataloader(num_workers=0)
             case 'predict':
-                dataloader = self.trainer.datamodule.predict_dataloader()
+                dataloader = self.trainer.datamodule.predict_dataloader(num_workers=0)
         dummy_batch = next(iter(dataloader))
         self.forward(dummy_batch)
     
