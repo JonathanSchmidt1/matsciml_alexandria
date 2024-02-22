@@ -686,7 +686,7 @@ class BaseTaskModule(pl.LightningModule):
         if encoder_class is not None and encoder_kwargs:
             try:
                 encoder = encoder_class(**encoder_kwargs)
-            except Exception as e::
+            except Exception as e:
                 raise ValueError(
                    f"Unable to instantiate encoder {encoder_class} with kwargs: {encoder_kwargs}. The error is {str(e)}",
                 )
