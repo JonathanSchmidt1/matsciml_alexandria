@@ -15,6 +15,8 @@ import torch
 from einops import reduce
 from torch import Tensor, nn
 from torch.optim import AdamW, Optimizer, lr_scheduler
+import torchmetrics
+
 
 from matsciml.common import package_registry
 from matsciml.common.registry import registry
@@ -684,9 +686,9 @@ class BaseTaskModule(pl.LightningModule):
         if encoder_class is not None and encoder_kwargs:
             try:
                 encoder = encoder_class(**encoder_kwargs)
-            except:
+            except Exception as e::
                 raise ValueError(
-                    f"Unable to instantiate encoder {encoder_class} with kwargs: {encoder_kwargs}.",
+                   f"Unable to instantiate encoder {encoder_class} with kwargs: {encoder_kwargs}. The error is {str(e)}",
                 )
         if encoder is not None:
             self.encoder = encoder
@@ -702,6 +704,7 @@ class BaseTaskModule(pl.LightningModule):
         self.task_keys = task_keys
         self.embedding_reduction_type = embedding_reduction_type
         self.save_hyperparameters(ignore=["encoder", "loss_func"])
+        self.mae = torchmetrics.regression.MeanAbsoluteError()
 
     @property
     def task_keys(self) -> list[str]:
@@ -907,6 +910,7 @@ class BaseTaskModule(pl.LightningModule):
         predictions = self(batch)
         losses = {}
         for key in self.task_keys:
+            self.mae(target_val, self.normalizers[key].denorm(predictions[key]))
             target_val = targets[key]
             if self.uses_normalizers:
                 target_val = self.normalizers[key].norm(target_val)
@@ -933,7 +937,17 @@ class BaseTaskModule(pl.LightningModule):
                     )
                 scheduler = scheduler_class(opt, **params)
                 schedulers.append(scheduler)
-        return [opt], schedulers
+        if scheduler_name=='ReduceLROnPlateau':
+            {
+                    "optimizer": opt,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "monitor": 'val_e_above_hull',
+                        "frequency": 1,
+                    },
+                }
+        else:
+            return [opt], schedulers
 
     def training_step(
         self,
@@ -948,11 +962,12 @@ class BaseTaskModule(pl.LightningModule):
         try:
             batch_size = self.encoder.read_batch_size(batch)
         except:
+            batch_size = batch['graph'].batch_size
             warn(
-                "Unable to parse batch size from data, defaulting to `None` for logging.",
+                f"Unable to parse batch size from self.encoder.read_batch_size(batch), defaulting batch_size = batch['graph'].batch_size to {batch_size} for logging.",
             )
-            batch_size = None
-        self.log_dict(metrics, on_step=True, prog_bar=True, batch_size=batch_size)
+        self.log_dict(metrics, on_step=True, prog_bar=True, batch_size=batch_size, sync_dist=True)
+        self.log('train_mae_'+key, self.mae, on_step=True, on_epoch=False, batch_size=batch_size)
         return loss_dict
 
     def validation_step(
@@ -968,11 +983,12 @@ class BaseTaskModule(pl.LightningModule):
         try:
             batch_size = self.encoder.read_batch_size(batch)
         except:
+            batch_size = batch['graph'].batch_size
             warn(
-                "Unable to parse batch size from data, defaulting to `None` for logging.",
+                f"Unable to parse batch size from self.encoder.read_batch_size(batch), defaulting batch_size = batch['graph'].batch_size to {batch_size} for logging.",
             )
-            batch_size = None
-        self.log_dict(metrics, batch_size=batch_size)
+        self.log_dict(metrics, batch_size=batch_size, sync_dist=True)
+        self.log('val_mae_'+key, self.mae, on_step=True, on_epoch=True, batch_size=batch_size)
         return loss_dict
 
     def test_step(
@@ -988,11 +1004,12 @@ class BaseTaskModule(pl.LightningModule):
         try:
             batch_size = self.encoder.read_batch_size(batch)
         except:
+            batch_size = batch['graph'].batch_size
             warn(
-                "Unable to parse batch size from data, defaulting to `None` for logging.",
+                f"Unable to parse batch size from self.encoder.read_batch_size(batch), defaulting batch_size = batch['graph'].batch_size to {batch_size} for logging.",
             )
-            batch_size = None
-        self.log_dict(metrics, batch_size=batch_size)
+        self.log_dict(metrics, batch_size=batch_size, sync_dist=True)
+        self.log('val_mae_'+key, self.mae, on_step=True, on_epoch=True, batch_size=batch_size)
         return loss_dict
 
     def _make_normalizers(self) -> dict[str, Normalizer]:

@@ -34,6 +34,8 @@ class MatSciMLDataModule(pl.LightningDataModule):
         Path to a training dataset, by default None
     batch_size : int, optional
         Number of data samples per batch, by default 32
+    val_batch_size: int, optional
+        Number of data samples per batch during validation, by default 64
     num_workers : int, optional
         Number of data loader workers, by default 0, which equates to
         only using the main process for data loading.
@@ -43,6 +45,8 @@ class MatSciMLDataModule(pl.LightningDataModule):
     test_split : Optional[Union[str, Path, float]], optional
         Split parameter used for test, which can be a float between 0/1
          or a string/path, by default 0.0 which skips validation.
+    train_removal_split : Optional[float], optional
+        Split parameter used for removing training data, which can be a float between 0/1
     seed : Optional[int], optional
         Random seed value used to create splits if fractional values are
         passed into ``val_split``/``test_split``, by default None, which
@@ -99,9 +103,11 @@ class MatSciMLDataModule(pl.LightningDataModule):
         dataset: str | type[TorchDataset] | TorchDataset | None = None,
         train_path: str | Path | None = None,
         batch_size: int = 32,
+        val_batch_size: int = 64,
         num_workers: int = 0,
         val_split: str | Path | float | None = 0.0,
         test_split: str | Path | float | None = 0.0,
+        train_removal_split: float | None = None,
         seed: int | None = None,
         dset_kwargs: dict[str, Any] | None = None,
         persistent_workers: bool | None = None,
@@ -225,21 +231,36 @@ class MatSciMLDataModule(pl.LightningDataModule):
             test_split = getattr(self.hparams, "test_split")
             if not isinstance(test_split, float):
                 test_split = 0.0
+            train_removal_split = getattr(self.hparams, "train_removal_split", None)
+            if not isinstance(train_removal_split, float):
+                train_removal_split = 0.0
             num_val = int(val_split * num_points)
             num_test = int(test_split * num_points)
+
             # make sure we're not asking for more data than exists
-            num_train = num_points - (num_val + num_test)
+            num_train_og = num_points - (num_val + num_test)
+            num_removal = int(train_removal_split * num_train_og)
+            num_train = num_train_og - num_removal
             assert (
                 num_train >= 0
             ), f"More test/validation samples requested than available samples."
             splits_list = random_split(
                 self.dataset,
-                [num_train, num_val, num_test],
+                [num_train_og, num_val, num_test],
                 generator,
             )
             for split, key in zip(splits_list, ["train", "val", "test"]):
                 if split is not None:
                     splits[key] = split
+            
+            print('train_removal_split', train_removal_split, flush=True)
+            print(f'Number of training systems og: {num_train_og} now: {num_train}')
+            print(f'Number of validation systems: {num_val}')
+            if train_removal_split > 0.0:            
+                generator = torch.Generator().manual_seed(int(seed))
+                train, removed = random_split(splits_list[0], [num_train, num_removal], generator)
+                splits["train"] = train
+
         # otherwise, just assume paths - if they're not we'll ignore them here
         for key in ["val", "test"]:
             split_path = getattr(self.hparams, f"{key}_split", None)
@@ -251,52 +272,77 @@ class MatSciMLDataModule(pl.LightningDataModule):
             splits["train"] = self.dataset
         self.splits = splits
 
-    def train_dataloader(self):
+    def train_dataloader(self, num_workers=None):
         split = self.splits.get("train")
+        if num_workers == None:
+            num_workers = self.hparams.num_workers
+            persistent = self.persistent_workers
+        else:
+            persistent = False
         return DataLoader(
             split,
             batch_size=self.hparams.batch_size,
             shuffle=True,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
-            persistent_workers=self.persistent_workers,
+            persistent_workers=persistent,
+            drop_last=True,
         )
 
-    def predict_dataloader(self):
+    def predict_dataloader(self, num_workers=None):
         """
         Predict behavior just assumes the whole dataset is used for inference.
         """
+        if num_workers == None:
+    	    num_workers = self.hparams.num_workers
+    	    persistent = self.persistent_workers
+        else:
+            persistent = False
         return DataLoader(
             self.dataset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self, num_workers=None):
         split = self.splits.get("test", None)
         if split is None:
             return None
+        if num_workers == None:
+        	num_workers = self.hparams.num_workers
+        	persistent = self.persistent_workers
+        else:
+            persistent=False
         return DataLoader(
             split,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            batch_size=self.hparams.val_batch_size,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
+            shuffle=False,
+            drop_last=True,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self, num_workers=None):
         split = self.splits.get("val", None)
         if split is None:
             return None
+        if num_workers == None:
+            persistent = self.persistent_workers
+            num_workers = self.hparams.num_workers
+        else:
+            persistent = False
         return DataLoader(
             split,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            batch_size=self.hparams.val_batch_size,
+            num_workers=num_workers,
             collate_fn=self.dataset.collate_fn,
             persistent_workers=self.persistent_workers,
+            drop_last=True,
         )
+
 
     @classmethod
     def from_devset(
